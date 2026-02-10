@@ -2,12 +2,13 @@ name: Push-to-Deploy Pipeline
 
 on:
   push:
-    branches: [ main ] # Change to 'master' if your branch name is different
+    branches: [ main ] # Change to 'master' if your primary branch is named master
 
 env:
   STACK_NAME: "MyStaticSiteStack"
   AWS_REGION: "ap-south-1"
   KEY_NAME: "deploy-key"
+  # Pulls the public repo URL automatically
   REPO_URL: "https://github.com{{ github.repository }}.git"
 
 jobs:
@@ -25,7 +26,8 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy/Update CloudFormation
-        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        # Updated from v2 to v1.2.0 (stable version)
+        uses: aws-actions/aws-cloudformation-github-deploy@v1.2.0
         with:
           name: ${{ env.STACK_NAME }}
           template: template.yaml
@@ -46,6 +48,8 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /var/www/html
+            # Fetch latest changes and force update files
             sudo git fetch --all
             sudo git reset --hard origin/main
             sudo chown -R ec2-user:apache /var/www/html
+            sudo systemctl restart httpd
