@@ -1,0 +1,51 @@
+name: Push-to-Deploy Pipeline
+
+on:
+  push:
+    branches: [ main ] # Change to 'master' if your branch name is different
+
+env:
+  STACK_NAME: "MyStaticSiteStack"
+  AWS_REGION: "ap-south-1"
+  KEY_NAME: "deploy-key"
+  REPO_URL: "https://github.com{{ github.repository }}.git"
+
+jobs:
+  sync-infra-and-code:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy/Update CloudFormation
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ env.STACK_NAME }}
+          template: template.yaml
+          parameter-overrides: "KeyName=${{ env.KEY_NAME }},GitHubRepoURL=${{ env.REPO_URL }}"
+          no-fail-on-empty-changeset: "1"
+
+      - name: Get Instance IP
+        id: get-ip
+        run: |
+          IP=$(aws ec2 describe-instances --filters "Name=tag:aws:cloudformation:stack-name,Values=${{ env.STACK_NAME }}" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].PublicIpAddress" --output text)
+          echo "ip=$IP" >> $GITHUB_OUTPUT
+
+      - name: Update Web Files via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ steps.get-ip.outputs.ip }}
+          username: ec2-user
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /var/www/html
+            sudo git fetch --all
+            sudo git reset --hard origin/main
+            sudo chown -R ec2-user:apache /var/www/html
